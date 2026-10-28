@@ -1,26 +1,239 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Endless Jump</title>
-  <style>
-    body {
-      margin: 0;
-      background: #222;
-    }
-
-    iframe {
-      width: 100%;
-      height: 600px;
-      border: none;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky Jumper</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #101326;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+h1 { margin: 16px 0 8px; }
+#game {
+  display: block;
+  width: min(480px, 100%);
+  height: auto;
+  margin: auto;
+  background: #182c50;
+  touch-action: none;
+}
+button {
+  padding: 10px 18px;
+  margin: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #64f0bf;
+  font-weight: bold;
+  cursor: pointer;
+}
+p { color: #cbd5e1; }
+</style>
 </head>
 <body>
-  <iframe
-    src="https://wave-rider.io/endless-jump.embed"
-    allowfullscreen>
-  </iframe>
+<h1>SKY JUMPER</h1>
+<p>Move with ← → or A / D. Climb as high as you can!</p>
+<canvas id="game" width="480" height="600"></canvas>
+<div>
+  <button id="restart">Play / Restart</button>
+</div>
+<p id="status">Press Play to begin</p>
+
+<script>
+const c = document.getElementById("game");
+const ctx = c.getContext("2d");
+const status = document.getElementById("status");
+
+const W = c.width, H = c.height;
+let player, platforms, camera, score, best, playing;
+let keys = {};
+let lastTime = 0;
+
+best = Number(localStorage.getItem("skyJumperBest") || 0);
+
+function newGame() {
+  player = {
+    x: W / 2 - 14,
+    y: 440,
+    w: 28,
+    h: 32,
+    vx: 0,
+    vy: -600
+  };
+
+  platforms = [
+    { x: 165, y: 490, w: 150, h: 12 }
+  ];
+
+  let y = 410;
+  while (y > -1000) {
+    platforms.push({
+      x: Math.random() * (W - 90),
+      y,
+      w: 65 + Math.random() * 25,
+      h: 12
+    });
+    y -= 65 + Math.random() * 38;
+  }
+
+  camera = 0;
+  score = 0;
+  playing = true;
+  lastTime = performance.now();
+  status.textContent = "Best height: " + best;
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("restart").onclick = newGame;
+
+document.addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "Space"].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.code] = false;
+});
+
+function update(dt) {
+  const oldBottom = player.y + player.h;
+
+  if (keys.ArrowLeft || keys.KeyA) player.vx -= 1500 * dt;
+  if (keys.ArrowRight || keys.KeyD) player.vx += 1500 * dt;
+
+  if (!(keys.ArrowLeft || keys.KeyA ||
+        keys.ArrowRight || keys.KeyD)) {
+    player.vx *= Math.pow(0.02, dt);
+  }
+
+  player.vx = Math.max(-300, Math.min(300, player.vx));
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+  player.vy += 1450 * dt;
+
+  // Wrap around the screen edges.
+  if (player.x > W) player.x = -player.w;
+  if (player.x + player.w < 0) player.x = W;
+
+  // Land on platforms while falling.
+  if (player.vy > 0) {
+    for (const p of platforms) {
+      if (
+        oldBottom <= p.y &&
+        player.y + player.h >= p.y &&
+        player.x + player.w > p.x &&
+        player.x < p.x + p.w
+      ) {
+        player.y = p.y - player.h;
+        player.vy = -620;
+        break;
+      }
+    }
+  }
+
+  // Follow the player upwards.
+  if (player.y - camera < 220) {
+    camera = player.y - 220;
+  }
+
+  score = Math.max(score, Math.floor(-camera));
+
+  // Generate new platforms above the camera.
+  let top = Math.min(...platforms.map(p => p.y));
+  while (top > camera - 900) {
+    top -= 65 + Math.random() * 45;
+    platforms.push({
+      x: Math.random() * (W - 85),
+      y: top,
+      w: 60 + Math.random() * 30,
+      h: 12
+    });
+  }
+
+  // Remove platforms far below the camera.
+  platforms = platforms.filter(p => p.y < camera + H + 100);
+
+  if (player.y - camera > H + 40) {
+    playing = false;
+    best = Math.max(best, score);
+    localStorage.setItem("skyJumperBest", best);
+    status.textContent =
+      "Game over! Height: " + score + " | Best: " + best;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = "#dceaff";
+  for (let i = 0; i < 65; i++) {
+    let x = (i * 83) % W;
+    let y = ((i * 127) % 1200 + camera * -0.2) % H;
+    if (y < 0) y += H;
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // Floating platforms
+  for (const p of platforms) {
+    let sy = p.y - camera;
+    if (sy < -30 || sy > H + 30) continue;
+
+    ctx.fillStyle = "#42e6b0";
+    ctx.fillRect(p.x, sy, p.w, p.h);
+    ctx.fillStyle = "#b2ffe5";
+    ctx.fillRect(p.x, sy, p.w, 3);
+  }
+
+  // Original player character
+  const py = player.y - camera;
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(player.x, py, player.w, player.h);
+  ctx.fillStyle = "#182c50";
+  ctx.fillRect(player.x + 17, py + 7, 5, 5);
+
+  // Score display
+  ctx.fillStyle = "white";
+  ctx.font = "bold 23px Arial";
+  ctx.fillText("HEIGHT " + score, 15, 32);
+  ctx.font = "15px Arial";
+  ctx.fillText("BEST " + best, 15, 54);
+
+  if (!playing) {
+    ctx.fillStyle = "rgba(5, 10, 30, 0.78)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.font = "bold 36px Arial";
+    ctx.fillText("GAME OVER", W / 2, H / 2 - 15);
+    ctx.font = "18px Arial";
+    ctx.fillText("Press Play to climb again", W / 2, H / 2 + 25);
+    ctx.textAlign = "left";
+  }
+}
+
+function loop(now) {
+  if (!playing) {
+    draw();
+    return;
+  }
+
+  const dt = Math.min((now - lastTime) / 1000, 0.03);
+  lastTime = now;
+  update(dt);
+  draw();
+
+  if (playing) requestAnimationFrame(loop);
+}
+
+draw();
+</script>
 </body>
 </html>
-
